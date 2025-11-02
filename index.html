@@ -262,7 +262,7 @@
         let isToneInitialized = false; // Flag für die Audio-Initialisierung
         let hitSynth; // Sound für Treffer
         let endSynth; // Sound für Spielende
-        let bgmPlayer; // Hintergrundmusik Player (für christmas.mp3)
+        // let bgmPlayer; // Hintergrundmusik Player (entfernt, da Datei nicht geladen werden kann)
 
         // Game-Konfiguration
         const gameDuration = 30; // Sekunden
@@ -303,19 +303,14 @@
                     envelope: { attack: 0.05, decay: 0.5, sustain: 0.1, release: 0.5 }
                 }).toDestination();
                 
-                // 3. Hintergrundmusik (Laden der externen christmas.mp3 Datei)
-                bgmPlayer = new Tone.Player({
-                    url: "./christmas.mp3", // Lade die MP3-Datei aus dem selben Ordner
-                    loop: true,           // Endlosschleife
-                    autostart: false,
-                    volume: -15,          // Leiser stellen (-15 dB)
-                    onerror: (e) => console.error("Fehler beim Laden von christmas.mp3:", e)
-                }).toDestination();
+                // HINTERGRUNDMUSIK WURDE ENTFERNT, da die externe Datei nicht geladen werden kann.
 
                 isToneInitialized = true;
                 console.log("Tone.js Audio Context started and synths/player defined.");
             } catch (e) {
                 console.error("Fehler bei der Tone.js Initialisierung:", e);
+                // Wenn die Initialisierung fehlschlägt, ist isToneInitialized false
+                isToneInitialized = false;
             }
         }
 
@@ -341,34 +336,7 @@
             endSynth.triggerAttackRelease("C4", "4n", now + 0.3);
         }
 
-        /**
-         * Startet die Hintergrundmusik (christmas.mp3).
-         */
-        function startBGM() {
-            if (!isToneInitialized || !bgmPlayer) return;
-            
-            // Wichtig: Prüfen, ob der Player schon geladen wurde und nicht bereits spielt
-            if (bgmPlayer.loaded && bgmPlayer.state !== 'started') {
-                 bgmPlayer.start();
-            } else if (!bgmPlayer.loaded) {
-                // Wenn noch nicht geladen, versuche es zu starten, sobald es bereit ist
-                bgmPlayer.on('load', () => {
-                     // Tone.js setzt das state-Feld bei Player-Objekten
-                    if (bgmPlayer.state !== 'started') {
-                        bgmPlayer.start();
-                    }
-                });
-            }
-        }
-
-        /**
-         * Stoppt die Hintergrundmusik.
-         */
-        function stopBGM() {
-            if (!isToneInitialized || !bgmPlayer) return;
-            bgmPlayer.stop();
-        }
-
+        // HINTERGRUNDMUSIK FUNKTIONEN STARTBGM UND STOPBGM WURDEN ENTFERNT.
 
         /**
          * Hilfsfunktion, um eine Zufallszahl zwischen min und max zu erhalten.
@@ -514,7 +482,7 @@
             if (isGameRunning) return;
 
             initializeTone(); // Initialisiere Audio beim ersten Klick
-            startBGM();       // Starte Hintergrundmusik
+            // startBGM(); // Hintergrundmusik entfernt
             hideMessageBox();
             score = 0;
             timeRemaining = gameDuration;
@@ -539,7 +507,7 @@
             clearTimeout(peepTimer);
             clearTimeout(countdownTimer);
             
-            stopBGM();      // Stoppe Hintergrundmusik
+            // stopBGM(); // Hintergrundmusik entfernt
             playEndSound(); // Spiele Spielende-Sound
             
             // Alle Schneemänner verstecken
@@ -550,8 +518,6 @@
             startButton.style.display = 'block';
             
             showMessageBox('Spiel Vorbei!', `Dein Endstand: ${score} Treffer!`);
-            
-            // Der Part zum Speichern des Scores wurde entfernt
         }
 
         /**

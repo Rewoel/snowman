@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schneeball-Jagd</title>
+    
+    <!-- Lade Tone.js für Soundeffekte und Musik -->
+    <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+
+<script type="module">
+        // Importiere alle notwendigen Firebase-Funktionen
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firestore Debug-Logging aktivieren
+        setLogLevel('Debug');
+
+        // Globale Firebase-Variablen (vom Canvas bereitgestellt)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        // Initialisierung
+        let app, db, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // WICHTIG: Mache die Datenbank- und Firestore-Funktionen für das Haupt-Skript verfügbar
+            window.db = db; 
+            window.auth = auth;
+            window.appId = appId;
+            window.addDoc = addDoc;      // Muss exportiert werden, um den Fehler "Can't find variable" zu beheben
+            window.collection = collection; // Muss exportiert werden
+
+            
+            // Authentifizierung
+            onAuthStateChanged(auth, (user) => {
+                const userId = user?.uid || crypto.randomUUID();
+                window.userId = userId; // Mache userId global verfügbar
+                console.log(`Firebase Initialisiert. User ID: ${userId}`);
+            });
+
+            if (initialAuthToken) {
+                signInWithCustomToken(auth, initialAuthToken).catch(error => {
+                    console.error("Firebase Custom Token Sign-in Fehler:", error);
+                    signInAnonymously(auth); // Fallback
+                });
+            } else {
+                signInAnonymously(auth);
+            }
+
+        } catch (error) {
+            console.error("Firebase Initialisierungsfehler:", error);
+        }
+
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;700&display=swap');
+
+        :root {
+            --color-snow: #ecf0f1;
+            --color-dirt: #8b4513;
+            --color-sky: #aed6f1;
+            --color-accent: #e74c3c; /* Rot für den Treffer-Effekt */
+            --color-text: #2c3e50;
+            --font-game: 'Press Start 2P', cursive;
+            --font-ui: 'Inter', sans-serif;
+            --hole-size: 100px;
+
+            /* Für Schneeball-Animation (dynamisch gesetzt) */
+            --target-x: 0px;
+            --target-y: 0px;
+        }
+
+        body {
+            font-family: var(--font-ui);
+            background: linear-gradient(to bottom, var(--color-sky) 0%, var(--color-snow) 70%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px 20px 80px 20px; 
+            color: var(--color-text);
+            text-align: center;
+            overflow-x: hidden; 
+        }
+
+        h1 {
+            font-family: var(--font-game);
+            color: var(--color-text);
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            text-shadow: 2px 2px 0 var(--color-snow);
+        }
+        
+        .game-container {
+            background-color: var(--color-dirt);
+            border: 12px solid #55351a;
+            border-radius: 15px;
+            box-shadow: 0 10px 0 #55351a, 0 15px 20px rgba(0,0,0,0.5);
+            padding: 20px;
+            max-width: 400px;
+            width: 90%;
+            margin-bottom: 20px;
+            position: relative; 
+            z-index: 1; 
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            font-family: var(--font-game);
+            font-size: 0.8rem;
+            color: var(--color-snow);
+            text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+        }
+
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .hole {
+            position: relative;
+            width: 100%;
+            padding-bottom: 100%; 
+            background-color: #333;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 4px solid #000;
+            box-shadow: inset 0 5px 10px rgba(0,0,0,0.7);
+            cursor: pointer;
+            transition: background-color 0.1s ease-out;
+            z-index: 1; 
+        }
+
+        .snowman {
+            position: absolute;
+            bottom: -200%; 
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 4rem; 
+            line-height: var(--hole-size);
+            user-select: none;
+            cursor: pointer;
+            transition: bottom 0.2s cubic-bezier(0.68, -0.55, 0.26, 1.55);
+            z-index: 10;
+        }
+
+        .hole.up .snowman {
+            bottom: -5px; 
+            pointer-events: auto;
+        }
+
+        .hole.hit {
+            background-color: var(--color-accent); 
+            animation: hit-flash 0.1s ease-in;
+        }
+
+        @keyframes hit-flash {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+            100% { transform: scale(1); }
+        }
+
+        button {
+            font-family: var(--font-game);
+            background-color: #2ecc71;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            box-shadow: 0 5px 0 #27ae60;
+            transition: all 0.1s ease;
+            text-transform: uppercase;
+            z-index: 10; 
+        }
+
+        button:hover {
+            background-color: #27ae60;
+        }
+
+        button:active {
+            box-shadow: 0 2px 0 #27ae60;
+            transform: translateY(3px);
+        }
+
+        .message-box {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .message-content {
+            background-color: var(--color-snow);
+            color: var(--color-text);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            font-family: var(--font-ui);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            max-width: 80%;
+        }
+        
+        .message-content h2 {
+            font-family: var(--font-game);
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        /* --- Schneeball-Styles und Animation --- */
+        #snowball {
+            position: fixed; 
+            width: 25px; 
+            height: 25px;
+            background-color: white;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+            z-index: 50; 
+            pointer-events: none; 
+            opacity: 0; 
+            left: 0;
+            bottom: 0;
+        }
+
+        #snowball.throw-animation {
+            opacity: 1; 
+            animation: throwSnowball 0.5s cubic-bezier(0.5, 0.2, 0.5, 1.2) forwards; 
+        }
+
+        @keyframes throwSnowball {
+            /* 0% Start: Unten links */
+            0% {
+                transform: translate(0px, 0px) scale(0.5); 
+                opacity: 0.8;
+                left: 0; 
+                top: 100vh;
+            }
+            /* 50% Bogen: Höhe und Mitte */
+            50% {
+                /* Dynamisches Ziel, um den Bogen über die Mitte zu werfen */
+                transform: translate(calc(var(--target-x) / 2), calc(var(--target-y) / 2)) scale(1.2); 
+                opacity: 1;
+                /* 50% der Distanz in X-Richtung, Y-Position höher (Bogen-Effekt) */
+                left: calc(var(--target-x) / 2);
+                top: calc(var(--target-y) - 150px); 
+            }
+            /* 100% Ende: Zielpunkt */
+            100% {
+                transform: translate(0px, 0px) scale(0);
+                opacity: 0;
+                left: var(--target-x);
+                top: var(--target-y);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Schneeball-Jagd ⛄</h1>
+
+    <div class="game-container">
+        <div class="stats">
+            <div id="score">Treffer: 0</div>
+            <div id="time">Zeit: 30s</div>
+        </div>
+        
+        <div class="game-grid" id="game-grid">
+            
+
+</div>
+    </div>
+    
+    <button id="start-button" onclick="startGame()">Spiel Starten</button>
+
+    
+
+<div id="snowball"></div>
+
+    
+
+<div id="message-box" class="message-box" style="display: none;">
+        <div class="message-content">
+            <h2 id="message-title">Spiel Vorbei!</h2>
+            <p id="message-text">Dein Endstand: 0 Treffer.</p>
+            <button onclick="hideMessageBox()">OK / Neues Spiel</button>
+        </div>
+    </div>
+
+    <script>
+        // Game-State Variablen
+        let score = 0;
+        let timeRemaining = 30;
+        let isGameRunning = false;
+        let lastHole;
+        let peepTimer;
+        let countdownTimer;
+        let isToneInitialized = false; // Flag für die Audio-Initialisierung
+        let hitSynth; // Sound für Treffer
+        let endSynth; // Sound für Spielende
+        let bgmPlayer; // Hintergrundmusik Player (für christmas.mp3)
+
+        // Game-Konfiguration
+        const gameDuration = 30; // Sekunden
+        const minPeepTime = 500; // Minimale Zeit zwischen den Schneemann-Auftritten (ms)
+        const maxPeepTime = 1500; // Maximale Zeit zwischen den Schneemann-Auftritten (ms)
+        const snowmanUpTime = 700; // Wie lange der Schneemann maximal oben bleibt (ms)
+        const snowballAnimationDuration = 500; // ms
+
+        // DOM Elemente
+        const scoreDisplay = document.getElementById('score');
+        const timeDisplay = document.getElementById('time');
+        const gameGrid = document.getElementById('game-grid');
+        const startButton = document.getElementById('start-button');
+        const messageBox = document.getElementById('message-box');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const snowballElement = document.getElementById('snowball'); // Das Schneeball-Element
+
+        /**
+         * Initialisiert den Tone.js Audio Context und die Synthesizer/Player.
+         */
+        function initializeTone() {
+            if (isToneInitialized || typeof Tone === 'undefined') return;
+            
+            try {
+                // Audio Context muss durch Nutzerinteraktion gestartet werden
+                Tone.start();
+
+                // 1. Treffer-Sound (Kurzer, heller "Pop")
+                hitSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "square" },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 }
+                }).toDestination();
+
+                // 2. Spiel-Ende-Jingle (Kurze absteigende Melodie)
+                endSynth = new Tone.Synth({
+                    oscillator: { type: "sine" },
+                    envelope: { attack: 0.05, decay: 0.5, sustain: 0.1, release: 0.5 }
+                }).toDestination();
+                
+                // 3. Hintergrundmusik (Laden der externen christmas.mp3 Datei)
+                bgmPlayer = new Tone.Player({
+                    url: "./christmas.mp3", // Lade die MP3-Datei aus dem selben Ordner
+                    loop: true,           // Endlosschleife
+                    autostart: false,
+                    volume: -15,          // Leiser stellen (-15 dB)
+                    onerror: (e) => console.error("Fehler beim Laden von christmas.mp3:", e)
+                }).toDestination();
+
+                isToneInitialized = true;
+                console.log("Tone.js Audio Context started and synths/player defined.");
+            } catch (e) {
+                console.error("Fehler bei der Tone.js Initialisierung:", e);
+            }
+        }
+
+        /**
+         * Spielt den Treffer-Sound ab.
+         */
+        function playHitSound() {
+            if (!isToneInitialized || !hitSynth) return;
+            // Spielt einen Ton (z.B. C5) für eine kurze Dauer
+            hitSynth.triggerAttackRelease("C5", "16n");
+        }
+
+        /**
+         * Spielt den Spiel-Ende-Jingle ab.
+         */
+        function playEndSound() {
+            if (!isToneInitialized || !endSynth) return;
+            
+            const now = Tone.now();
+            // Absteigende Melodie: G4 -> E4 -> C4
+            endSynth.triggerAttackRelease("G4", "8n", now);
+            endSynth.triggerAttackRelease("E4", "8n", now + 0.15);
+            endSynth.triggerAttackRelease("C4", "4n", now + 0.3);
+        }
+
+        /**
+         * Startet die Hintergrundmusik (christmas.mp3).
+         */
+        function startBGM() {
+            if (!isToneInitialized || !bgmPlayer) return;
+            
+            // Wichtig: Prüfen, ob der Player schon geladen wurde und nicht bereits spielt
+            if (bgmPlayer.loaded && !bgmPlayer.state) {
+                 bgmPlayer.start();
+            } else if (!bgmPlayer.loaded) {
+                // Wenn noch nicht geladen, versuche es zu starten, sobald es bereit ist
+                bgmPlayer.on('load', () => bgmPlayer.start());
+            }
+        }
+
+        /**
+         * Stoppt die Hintergrundmusik.
+         */
+        function stopBGM() {
+            if (!isToneInitialized || !bgmPlayer) return;
+            bgmPlayer.stop();
+        }
+
+
+        /**
+         * Hilfsfunktion, um eine Zufallszahl zwischen min und max zu erhalten.
+         * @param {number} min
+         * @param {number} max
+         * @returns {number}
+         */
+        function randomTime(min, max) {
+            return Math.round(Math.random() * (max - min) + min);
+        }
+
+        /**
+         * Wählt zufällig ein "Loch" aus, das nicht das letzte war.
+         * @param {Array<HTMLElement>} holes
+         * @returns {HTMLElement}
+         */
+        function pickRandomHole(holes) {
+            const index = Math.floor(Math.random() * holes.length);
+            const hole = holes[index];
+            if (hole === lastHole) {
+                return pickRandomHole(holes); // Wähle erneut, wenn es dasselbe Loch ist
+            }
+            lastHole = hole;
+            return hole;
+        }
+
+        /**
+         * Lässt einen Schneemann aus einem zufälligen Loch erscheinen.
+         */
+        function peep() {
+            if (!isGameRunning) return;
+
+            const holes = Array.from(document.querySelectorAll('.hole'));
+            const time = randomTime(minPeepTime, maxPeepTime);
+            const hole = pickRandomHole(holes);
+
+            hole.classList.add('up');
+            
+            // Verstecke den Schneemann nach snowmanUpTime automatisch wieder
+            setTimeout(() => {
+                hole.classList.remove('up');
+                if (isGameRunning) {
+                    peepTimer = setTimeout(peep, randomTime(minPeepTime, maxPeepTime));
+                }
+            }, snowmanUpTime);
+        }
+
+        /**
+         * Aktualisiert die Anzeige für Zeit und beendet das Spiel, wenn die Zeit abgelaufen ist.
+         */
+        function countdown() {
+            if (!isGameRunning) return;
+
+            timeRemaining--;
+            timeDisplay.textContent = `Zeit: ${timeRemaining}s`;
+
+            if (timeRemaining <= 0) {
+                endGame();
+            } else {
+                countdownTimer = setTimeout(countdown, 1000);
+            }
+        }
+        
+        /**
+         * Wird aufgerufen, wenn der Spieler auf ein Loch klickt.
+         * @param {Event} e 
+         */
+        function handleHit(e) {
+            const holeElement = e.target.closest('.hole');
+            
+            if (!isGameRunning || !holeElement || !holeElement.classList.contains('up')) return;
+            
+            score++;
+            scoreDisplay.textContent = `Treffer: ${score}`;
+            playHitSound(); // Spiele Treffer-Sound
+
+            // Treffer-Effekt: Loch wird kurz rot und Schneemann verschwindet sofort
+            holeElement.classList.remove('up');
+            holeElement.classList.add('hit');
+            
+            // Schneeball-Animation starten
+            throwSnowball(holeElement);
+
+            // Entferne den Treffer-Effekt nach einer kurzen Zeit
+            setTimeout(() => holeElement.classList.remove('hit'), 100);
+
+            // Setze den Timer für den nächsten Schneemann-Auftritt zurück
+            clearTimeout(peepTimer);
+            peepTimer = setTimeout(peep, randomTime(minPeepTime / 2, maxPeepTime / 2));
+        }
+
+        /**
+         * Startet die Schneeball-Wurfanimation.
+         * @param {HTMLElement} targetHole - Das getroffene Loch-Element
+         */
+        function throwSnowball(targetHole) {
+            // Position des Ziels (Mitte des Lochs im Viewport)
+            const rect = targetHole.getBoundingClientRect();
+            const targetX = rect.left + rect.width / 2;
+            const targetY = rect.top + rect.height / 2;
+
+            // Setze die CSS-Variablen für die Zielpositionen
+            document.documentElement.style.setProperty('--target-x', `${targetX}px`);
+            document.documentElement.style.setProperty('--target-y', `${targetY}px`);
+
+            // Animation zurücksetzen
+            snowballElement.classList.remove('throw-animation');
+            snowballElement.style.opacity = '0';
+            
+            // Zwang zu Reflow, damit die Animation von neuem beginnt
+            void snowballElement.offsetWidth; 
+
+            // Animation starten
+            snowballElement.classList.add('throw-animation');
+
+            // Schneeball nach der Animation verstecken
+            setTimeout(() => {
+                snowballElement.classList.remove('throw-animation');
+                snowballElement.style.top = ''; 
+                snowballElement.style.left = '';
+            }, snowballAnimationDuration);
+        }
+
+        /**
+         * Erzeugt die 9 Löcher im Spielfeld.
+         */
+        function createHoles() {
+            gameGrid.innerHTML = ''; // Vorherige Löcher entfernen
+            for (let i = 0; i < 9; i++) {
+                const hole = document.createElement('div');
+                hole.classList.add('hole');
+                hole.innerHTML = '<span class="snowman">⛄</span>';
+                // Füge den Klick-Listener zum Loch hinzu
+                hole.addEventListener('click', handleHit); 
+                gameGrid.appendChild(hole);
+            }
+        }
+
+        /**
+         * Startet das Spiel.
+         */
+        function startGame() {
+            if (isGameRunning) return;
+
+            initializeTone(); // Initialisiere Audio beim ersten Klick
+            startBGM();       // Starte Hintergrundmusik
+            hideMessageBox();
+            score = 0;
+            timeRemaining = gameDuration;
+            isGameRunning = true;
+
+            // UI zurücksetzen
+            scoreDisplay.textContent = `Treffer: 0`;
+            timeDisplay.textContent = `Zeit: ${timeRemaining}s`;
+            startButton.style.display = 'none';
+
+            // Löcher erstellen und Spiel-Intervalle starten
+            createHoles();
+            peep();
+            countdown();
+        }
+
+        /**
+         * Beendet das Spiel.
+         */
+        function endGame() {
+            isGameRunning = false;
+            clearTimeout(peepTimer);
+            clearTimeout(countdownTimer);
+            
+            stopBGM();      // Stoppe Hintergrundmusik
+            playEndSound(); // Spiele Spielende-Sound
+            
+            // Alle Schneemänner verstecken
+            document.querySelectorAll('.hole').forEach(hole => hole.classList.remove('up'));
+
+            // UI anpassen und Nachricht anzeigen
+            startButton.textContent = 'Erneut Spielen';
+            startButton.style.display = 'block';
+            
+            showMessageBox('Spiel Vorbei!', `Dein Endstand: ${score} Treffer!`);
+            
+            // Speichere das Ergebnis (optional)
+            saveScore(score);
+        }
+
+        /**
+         * Zeigt die Modal-Box mit einer Nachricht an.
+         * @param {string} title
+         * @param {string} text
+         */
+        function showMessageBox(title, text) {
+            messageTitle.textContent = title;
+            messageText.textContent = text;
+            messageBox.style.display = 'flex';
+        }
+        
+        /**
+         * Versteckt die Modal-Box und startet das Spiel.
+         */
+        function hideMessageBox() {
+            messageBox.style.display = 'none';
+        }
+
+        /**
+         * Speichert den Highscore in Firestore.
+         * @param {number} finalScore
+         */
+        async function saveScore(finalScore) {
+             // Warte, bis Firebase-Funktionen und DB-Instanzen global verfügbar sind
+             if (typeof window.db === 'undefined' || typeof window.userId === 'undefined' || typeof window.addDoc === 'undefined') {
+                console.log("Firebase/User ID oder Funktionen noch nicht bereit. Score wird nicht gespeichert.");
+                return;
+            }
+
+            try {
+                const db = window.db;
+                const userId = window.userId;
+                const appId = window.appId;
+                const addDoc = window.addDoc; // Hole die global verfügbare Funktion
+                const collection = window.collection; // Hole die global verfügbare Funktion
+
+                // Pfad für öffentliche Highscores (kollaborativ)
+                const scoresCollectionPath = `artifacts/${appId}/public/data/highscores`;
+                
+                await addDoc(collection(db, scoresCollectionPath), {
+                    userId: userId,
+                    score: finalScore,
+                    timestamp: new Date()
+                });
+                console.log("Score erfolgreich gespeichert:", finalScore);
+            } catch (e) {
+                console.error("Fehler beim Speichern des Scores: ", e);
+            }
+        }
+
+        // Starte das Spiel-Setup beim Laden
+        window.onload = createHoles;
+
+    </script>
+</body>
+</html>

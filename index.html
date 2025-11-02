@@ -8,57 +8,6 @@
     <!-- Lade Tone.js für Soundeffekte und Musik -->
     <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
 
-<script type="module">
-        // Importiere alle notwendigen Firebase-Funktionen
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Firestore Debug-Logging aktivieren
-        setLogLevel('Debug');
-
-        // Globale Firebase-Variablen (vom Canvas bereitgestellt)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
-        // Initialisierung
-        let app, db, auth;
-        try {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-            
-            // WICHTIG: Mache die Datenbank- und Firestore-Funktionen für das Haupt-Skript verfügbar
-            window.db = db; 
-            window.auth = auth;
-            window.appId = appId;
-            window.addDoc = addDoc;      // Muss exportiert werden, um den Fehler "Can't find variable" zu beheben
-            window.collection = collection; // Muss exportiert werden
-
-            
-            // Authentifizierung
-            onAuthStateChanged(auth, (user) => {
-                const userId = user?.uid || crypto.randomUUID();
-                window.userId = userId; // Mache userId global verfügbar
-                console.log(`Firebase Initialisiert. User ID: ${userId}`);
-            });
-
-            if (initialAuthToken) {
-                signInWithCustomToken(auth, initialAuthToken).catch(error => {
-                    console.error("Firebase Custom Token Sign-in Fehler:", error);
-                    signInAnonymously(auth); // Fallback
-                });
-            } else {
-                signInAnonymously(auth);
-            }
-
-        } catch (error) {
-            console.error("Firebase Initialisierungsfehler:", error);
-        }
-
-    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;700&display=swap');
 
@@ -284,20 +233,17 @@
         </div>
         
         <div class="game-grid" id="game-grid">
-            
-
-</div>
+            <!-- Löcher werden per JavaScript erzeugt -->
+        </div>
     </div>
     
     <button id="start-button" onclick="startGame()">Spiel Starten</button>
 
     
-
-<div id="snowball"></div>
-
+    <div id="snowball"></div>
     
 
-<div id="message-box" class="message-box" style="display: none;">
+    <div id="message-box" class="message-box" style="display: none;">
         <div class="message-content">
             <h2 id="message-title">Spiel Vorbei!</h2>
             <p id="message-text">Dein Endstand: 0 Treffer.</p>
@@ -402,11 +348,16 @@
             if (!isToneInitialized || !bgmPlayer) return;
             
             // Wichtig: Prüfen, ob der Player schon geladen wurde und nicht bereits spielt
-            if (bgmPlayer.loaded && !bgmPlayer.state) {
+            if (bgmPlayer.loaded && bgmPlayer.state !== 'started') {
                  bgmPlayer.start();
             } else if (!bgmPlayer.loaded) {
                 // Wenn noch nicht geladen, versuche es zu starten, sobald es bereit ist
-                bgmPlayer.on('load', () => bgmPlayer.start());
+                bgmPlayer.on('load', () => {
+                     // Tone.js setzt das state-Feld bei Player-Objekten
+                    if (bgmPlayer.state !== 'started') {
+                        bgmPlayer.start();
+                    }
+                });
             }
         }
 
@@ -600,8 +551,7 @@
             
             showMessageBox('Spiel Vorbei!', `Dein Endstand: ${score} Treffer!`);
             
-            // Speichere das Ergebnis (optional)
-            saveScore(score);
+            // Der Part zum Speichern des Scores wurde entfernt
         }
 
         /**
@@ -620,38 +570,6 @@
          */
         function hideMessageBox() {
             messageBox.style.display = 'none';
-        }
-
-        /**
-         * Speichert den Highscore in Firestore.
-         * @param {number} finalScore
-         */
-        async function saveScore(finalScore) {
-             // Warte, bis Firebase-Funktionen und DB-Instanzen global verfügbar sind
-             if (typeof window.db === 'undefined' || typeof window.userId === 'undefined' || typeof window.addDoc === 'undefined') {
-                console.log("Firebase/User ID oder Funktionen noch nicht bereit. Score wird nicht gespeichert.");
-                return;
-            }
-
-            try {
-                const db = window.db;
-                const userId = window.userId;
-                const appId = window.appId;
-                const addDoc = window.addDoc; // Hole die global verfügbare Funktion
-                const collection = window.collection; // Hole die global verfügbare Funktion
-
-                // Pfad für öffentliche Highscores (kollaborativ)
-                const scoresCollectionPath = `artifacts/${appId}/public/data/highscores`;
-                
-                await addDoc(collection(db, scoresCollectionPath), {
-                    userId: userId,
-                    score: finalScore,
-                    timestamp: new Date()
-                });
-                console.log("Score erfolgreich gespeichert:", finalScore);
-            } catch (e) {
-                console.error("Fehler beim Speichern des Scores: ", e);
-            }
         }
 
         // Starte das Spiel-Setup beim Laden
